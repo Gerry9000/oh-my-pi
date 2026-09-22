@@ -181,6 +181,125 @@ describe("buildProviderCards", () => {
 		expect(reserve?.reportedAccounts).toBe(1);
 		expect(reserve?.eligibleAccounts).toBe(2);
 	});
+	it("keeps shared accounts with distinct account IDs separate", () => {
+		const shared = (accountId: string, usedFraction: number) => {
+			const value = limit("openai-codex", accountId, "7d", "7 days", usedFraction, "ok");
+			return {
+				...report("openai-codex", "same@example.test", [
+					{
+						...value,
+						id: "openai-codex:primary",
+						scope: { ...value.scope, accountId, shared: true },
+					},
+				]),
+				metadata: { email: "same@example.test", accountId },
+			};
+		};
+		const card = buildProviderCards([shared("acct-a", 0.2), shared("acct-b", 0.8)], now)[0];
+		expect(card.accounts).toBe(2);
+		expect(card.accountStatuses).toHaveLength(2);
+		expect(card.accountStatuses.map(account => account.label)).toEqual([
+			"same@example.test (acct-a)",
+			"same@example.test (acct-b)",
+		]);
+	});
+	it("disambiguates shared accounts by project ID", () => {
+		const projectReport = (projectId: string): UsageReport => {
+			const value = limit("openai-codex", "account", "7d", "7 days", 0.2, "ok");
+			return {
+				provider: "openai-codex",
+				fetchedAt: Date.now(),
+				limits: [
+					{
+						...value,
+						id: "openai-codex:primary",
+						scope: { provider: "openai-codex", windowId: "7d", projectId, shared: true },
+					},
+				],
+				metadata: { email: "same@example.test", projectId },
+			};
+		};
+		const card = buildProviderCards([projectReport("project-a"), projectReport("project-b")], now)[0];
+		expect(card.accountStatuses.map(account => account.label)).toEqual([
+			"same@example.test (project-a)",
+			"same@example.test (project-b)",
+		]);
+	});
+	it("disambiguates duplicate labels when no secondary identity exists", () => {
+		const makeReport = (usedFraction: number): UsageReport => ({
+			provider: "anthropic",
+			fetchedAt: Date.now(),
+			limits: [
+				{
+					id: "anthropic:primary",
+					label: "Claude 7 Day",
+					scope: { provider: "anthropic", windowId: "7d" },
+					window: { id: "7d", label: "7 days" },
+					amount: { usedFraction, unit: "percent" },
+				},
+			],
+			metadata: { email: "same@example.test" },
+		});
+		const card = buildProviderCards([makeReport(0.2), makeReport(0.8)], now)[0];
+		expect(card.accountStatuses.map(account => account.label)).toEqual([
+			"same@example.test #1",
+			"same@example.test #2",
+		]);
+	});
+
+	it("preserves a known plan when a newer shared snapshot omits it", () => {
+		const usage = (fetchedAt: number, planType?: string): UsageReport => {
+			const value = limit("openai-codex", "acct", "7d", "7 days", 0.2, "ok");
+			return {
+				provider: "openai-codex",
+				fetchedAt,
+				limits: [{ ...value, id: "openai-codex:primary", scope: { ...value.scope, shared: true } }],
+				metadata: { email: "same@example.test", accountId: "acct", ...(planType ? { planType } : {}) },
+			};
+		};
+		const card = buildProviderCards([usage(1, "pro"), usage(2)], now)[0];
+		expect(card.accounts).toBe(1);
+		expect(card.windows[0]?.label).toBe("7 days (pro)");
+		const latestWins = buildProviderCards([usage(2, "pro"), usage(1, "plus")], now)[0];
+		expect(latestWins.windows[0]?.label).toBe("7 days (pro)");
+	});
+
+	it("uses the newest shared balance snapshot instead of stale max headroom", () => {
+		const usage = (fetchedAt: number, remaining: number): UsageReport => ({
+			provider: "charm-hyper",
+			fetchedAt,
+			limits: [
+				{
+					id: "charm-hyper:credits",
+					label: "Credit balance",
+					scope: { provider: "charm-hyper", windowId: "balance", shared: true, sharedGroup: "pool" },
+					window: { id: "balance", label: "balance" },
+					amount: { remaining, unit: "credits" },
+				},
+			],
+		});
+		const card = buildProviderCards([usage(2, 95), usage(1, 100)], now)[0];
+		expect(card.windows[0]?.usedText).toBe("95 credits left");
+	});
+
+	it("does not count untyped reports as eligible for typed plan buckets", () => {
+		const usage = (email: string, planType?: string) => {
+			const value = {
+				...limit("openai-codex", email, "7d", "7 days", 0.2, "ok"),
+				id: "openai-codex:primary",
+				scope: { provider: "openai-codex" as const, windowId: "7d", shared: true },
+			};
+			return {
+				...report("openai-codex", email, [value]),
+				metadata: planType === undefined ? { email } : { email, planType },
+			};
+		};
+		const card = buildProviderCards([usage("header@x.test"), usage("pro@x.test", "pro")], now)[0];
+		expect(card.windows.map(window => [window.label, window.reportedAccounts, window.eligibleAccounts])).toEqual([
+			["7 days", 1, 1],
+			["7 days (pro)", 1, 1],
+		]);
+	});
 	it("derives an individual window status when the provider omits status", () => {
 		const omittedStatus = { ...limit("gemini", "a", "7d", "7 days", 1, "exhausted"), status: undefined };
 		const cards = buildProviderCards([report("gemini", "a@x.test", [omittedStatus])], now);
@@ -271,43 +390,88 @@ describe("buildProviderCards", () => {
 	it("collapses an account-wide balance reported once per key, whatever the order", () => {
 		// AuthStorage probes every stored key, so a two-key Charm Hyper account
 		// yields two shared rows for one pool. The two probes fire moments
+
 		// apart against a moving balance, so they rarely agree exactly — the
 		// values differ here deliberately, or reversing them would prove
 		// nothing and a first-wins implementation would still pass.
-		const balance = (remaining: number) => ({
+		const balance = (remaining: number, sharedGroup: string) => ({
 			id: "charm-hyper:credits",
 			label: "Credit balance",
-			scope: { provider: "charm-hyper" as const, windowId: "balance", shared: true },
+			scope: {
+				provider: "charm-hyper" as const,
+				windowId: "balance",
+				shared: true,
+				sharedGroup,
+			},
 			amount: { remaining, unit: "credits" as const },
 		});
-		const forward = buildProviderCards(
-			[report("charm-hyper", "a@x.test", [balance(100)]), report("charm-hyper", "a@x.test", [balance(95)])],
-			now,
-		);
-		const reversed = buildProviderCards(
-			[report("charm-hyper", "a@x.test", [balance(95)]), report("charm-hyper", "a@x.test", [balance(100)])],
+		const charmReport = (remaining: number, endpoint = "https://api.example.test/credits"): UsageReport => ({
+			provider: "charm-hyper",
+			fetchedAt: Date.now(),
+			limits: [balance(remaining, `charm-hyper:credits:${endpoint}`)],
+			metadata: { endpoint },
+		});
+		const forward = buildProviderCards([charmReport(100), charmReport(95)], now);
+		const reversed = buildProviderCards([charmReport(95), charmReport(100)], now);
+		const separateEndpoints = buildProviderCards(
+			[charmReport(100), charmReport(95, "https://other.example.test/credits")],
 			now,
 		);
 
 		// One pool, so never the 195 a sum would claim, and never dependent on
-		// which credential happened to be probed first.
+		// which credential happened to be probed first. Distinct endpoint pools
+		// are independent and therefore do add up in the combined amount.
 		expect(forward[0].windows[0].usedText).toBe("100 credits left");
 		expect(reversed[0].windows[0].usedText).toBe("100 credits left");
+		expect(separateEndpoints[0].windows[0].usedText).toBe("195 credits left");
+		expect(separateEndpoints[0].accounts).toBe(2);
 		expect(forward[0].accounts).toBe(1);
 		expect(forward[0].accountStatuses).toHaveLength(1);
 		expect(reversed[0].accounts).toBe(1);
 		expect(reversed[0].accountStatuses).toHaveLength(1);
 	});
+	it("sums independent shared balances by account identity", () => {
+		const balance = (accountId: string, remaining: number): UsageReport => ({
+			provider: "zai",
+			fetchedAt: Date.now(),
+			limits: [
+				{
+					id: "zai:credits",
+					label: "Credits",
+					scope: { provider: "zai", accountId, windowId: "credits", shared: true },
+					window: { id: "credits", label: "credits" },
+					amount: { remaining, unit: "credits" },
+				},
+			],
+			metadata: { accountId, email: `${accountId}@example.test` },
+		});
+		const card = buildProviderCards([balance("acct-a", 100), balance("acct-b", 50)], now)[0];
+		expect(card.windows[0]?.usedText).toBe("150 credits left");
+	});
 
 	it("qualifies same-email accounts with their organization", () => {
 		const makeReport = (orgName: string) => ({
 			...report("anthropic", "same@example.test", [limit("anthropic", "account", "7d", "Claude 7 Day", 0.2, "ok")]),
-			metadata: { email: "same@example.test", orgName },
+			metadata: { email: "same@example.test", orgId: `id-${orgName}`, orgName },
 		});
 		const accounts = buildProviderCards([makeReport("Org A"), makeReport("Org B")], now)[0].accountStatuses;
 		expect(accounts.map(account => account.label)).toEqual([
 			"same@example.test (Org A)",
 			"same@example.test (Org B)",
+		]);
+	});
+
+	it("falls back to the org id when a subscription carries no org name", () => {
+		// A token response can carry the org uuid without a display name; the
+		// uuid is the scoped identity, so it must still separate the two rows.
+		const makeReport = (orgId: string) => ({
+			...report("anthropic", "same@example.test", [limit("anthropic", "account", "7d", "Claude 7 Day", 0.2, "ok")]),
+			metadata: { email: "same@example.test", orgId },
+		});
+		const accounts = buildProviderCards([makeReport("org-team"), makeReport("org-max")], now)[0].accountStatuses;
+		expect(accounts.map(account => account.label)).toEqual([
+			"same@example.test (org-team)",
+			"same@example.test (org-max)",
 		]);
 	});
 
@@ -379,6 +543,9 @@ describe("UsageDashboardComponent", () => {
 		expect(overview).toContain("Monthly");
 		expect(overview).toContain("100% free");
 		expect(overview).toContain("1/2");
+		const partialQuotaLine = overview.split("\n").find(line => line.includes("1/2"));
+		expect(partialQuotaLine).toBeDefined();
+		expect(partialQuotaLine).toMatch(/10\.\ds/);
 		expect(overview).toContain("idle@x.test");
 		expect(overview).not.toContain("untouched:");
 		expect(overview).toMatch(/10\.\ds/);
@@ -387,6 +554,13 @@ describe("UsageDashboardComponent", () => {
 		const narrowQuotaLine = narrowOverview.split("\n").find(line => line.includes("7 days"));
 		expect(narrowQuotaLine).toBeDefined();
 		expect(narrowQuotaLine ? (narrowQuotaLine.match(/█/g) ?? []).length : 0).toBeGreaterThanOrEqual(8);
+		const monthlyLine = overview.split("\n").find(line => line.includes("Monthly") && line.includes("1/2"));
+		const sevenDayLine = overview.split("\n").find(line => line.includes("7 days") && line.includes("50%"));
+		expect(monthlyLine).toBeDefined();
+		expect(sevenDayLine).toBeDefined();
+		expect(monthlyLine ? (monthlyLine.match(/[█░]/g) ?? []).length : 0).toBe(
+			sevenDayLine ? (sevenDayLine.match(/[█░]/g) ?? []).length : 0,
+		);
 		component.dispose();
 	});
 	it("renders specific error reason when activity loading fails instead of generic DB read error", async () => {
