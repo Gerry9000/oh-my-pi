@@ -173,6 +173,9 @@ describe("renderUsageReports content", () => {
 
 	it("uses the newest shared snapshot instead of stale max headroom", () => {
 		const now = Date.now();
+		// Production shape: `fetchCharmHyperUsage` marks the balance with an
+		// endpoint-scoped pool group, which is what makes two key probes of one
+		// account the same pool rather than two accounts.
 		const balance = (fetchedAt: number, remaining: number): UsageReport => ({
 			provider: "charm-hyper",
 			fetchedAt,
@@ -180,7 +183,12 @@ describe("renderUsageReports content", () => {
 				{
 					id: "charm-hyper:credits",
 					label: "Credit balance",
-					scope: { provider: "charm-hyper", windowId: "balance", shared: true },
+					scope: {
+						provider: "charm-hyper",
+						windowId: "balance",
+						shared: true,
+						sharedGroup: "charm-hyper:credits",
+					},
 					amount: { remaining, unit: "credits" },
 				},
 			],

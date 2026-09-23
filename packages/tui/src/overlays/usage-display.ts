@@ -229,21 +229,26 @@ function sharedAccountKey(report: UsageReport): string | undefined {
 	if (report.limits.length === 0 || report.limits.some(limit => limit.scope.shared !== true)) return undefined;
 	const identity = reportIdentityKey(report);
 	if (identity !== undefined) return identity;
+	// No identity: an explicit pool group is the only other positive evidence
+	// that two reports describe the same pool. `scope.shared` alone is NOT that
+	// evidence — opencode-go marks every window shared because the windows are
+	// account-wide, yet each stored key is its own account drawing its own pool,
+	// so collapsing on `shared` + provider would show three accounts as one.
+	// The endpoint stays in the key so proxy-scoped credentials (Charm Hyper)
+	// keep separate pools.
 	const sharedGroups = [
 		...new Set(report.limits.map(limit => limit.scope.sharedGroup).filter(isNonEmptyString)),
 	].sort();
-	// No identity anywhere: the reports are indistinguishable and `shared`
-	// asserts one account-wide pool, so merging is the only reading that cannot
-	// double-count. The endpoint keeps proxy-scoped credentials (Charm Hyper)
-	// in separate pools.
+	if (sharedGroups.length === 0) return undefined;
 	const endpoint = isNonEmptyString(report.metadata?.endpoint) ? report.metadata.endpoint : "";
 	return `${report.provider}\0pool\0${sharedGroups.join(",")}\0${endpoint}`;
 }
 
 /**
  * Merge per-credential probes of one account-wide pool into a single report.
- * Identity-keyed first; pool+endpoint fallback for providers (Charm Hyper)
- * that expose no account identity at all.
+ * Keyed by account identity first, then by explicit pool group + endpoint for
+ * providers that expose no identity at all (Charm Hyper). A report that carries
+ * neither is left alone: it cannot be shown to be a duplicate of any other.
  */
 export function collapseSharedAccountReports(reports: UsageReport[]): UsageReport[] {
 	const collapsed: UsageReport[] = [];

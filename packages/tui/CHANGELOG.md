@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Usage views no longer merge distinct accounts of a provider that marks every window `shared` without exposing an account identity or a pool group (opencode-go, synthetic): collapsing now requires positive evidence — an account identity or an explicit `sharedGroup` — instead of `scope.shared` alone, so a three-key provider shows three accounts rather than one.
+
 - Usage cards no longer print a `combined` quota block when only one account reports for the provider: the account row above already lists that account's windows, so the block duplicated them under a heading that promises an aggregation.
 
 - Usage dashboard status classification now uses the shared limit-status contract: an omitted status is inferred from the used fraction on the same boundaries and thresholds as the other usage surfaces, and a bucket that mixes healthy and pressured accounts reads as a warning rather than as its worst account.

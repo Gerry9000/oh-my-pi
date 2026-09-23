@@ -282,6 +282,33 @@ describe("buildProviderCards", () => {
 		expect(card.windows[0]?.usedText).toBe("95 credits left");
 	});
 
+	it("keeps one row per account when a provider marks every window shared", () => {
+		// opencode-go marks each window `shared` (the windows are account-wide)
+		// but emits no account identity and no pool group, and each stored key is
+		// its own account drawing its own pool. Collapsing on `shared` alone
+		// would show three accounts as one.
+		const opencodeGo = (usedFraction: number): UsageReport => ({
+			provider: "opencode-go",
+			fetchedAt: now,
+			limits: [
+				{
+					id: "opencode-go:rolling",
+					label: "Rolling limit",
+					scope: { provider: "opencode-go", windowId: "rolling", shared: true },
+					window: { id: "rolling", label: "Rolling" },
+					amount: { usedFraction, unit: "percent" },
+				},
+			],
+			// Every key probes the same base URL, so `endpoint` is identical
+			// across accounts — it cannot stand in for account identity.
+			metadata: { planType: "OpenCode Go", endpoint: "https://opencode.example.test/v1" },
+		});
+
+		const card = buildProviderCards([opencodeGo(0.1), opencodeGo(0.4), opencodeGo(0.9)], now)[0];
+		expect(card.accounts).toBe(3);
+		expect(card.accountStatuses).toHaveLength(3);
+	});
+
 	it("does not count untyped reports as eligible for typed plan buckets", () => {
 		const usage = (email: string, planType?: string) => {
 			const value = {
