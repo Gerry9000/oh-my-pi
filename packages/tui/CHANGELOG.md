@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Usage cards no longer print a `combined` quota block when only one account reports for the provider: the account row above already lists that account's windows, so the block duplicated them under a heading that promises an aggregation.
+
 - Usage dashboard status classification now uses the shared limit-status contract: an omitted status is inferred from the used fraction on the same boundaries and thresholds as the other usage surfaces, and a bucket that mixes healthy and pressured accounts reads as a warning rather than as its worst account.
 
 ## [18.2.9] - 2026-09-22

@@ -754,8 +754,14 @@ export class UsageDashboardComponent implements Component {
 			return lines;
 		}
 
-		lines.push(`  ${theme.fg("muted", "combined")}`);
-		lines.push(...this.#renderWindowLines(card.windows, width, "    ", undefined, card.accounts));
+		// The aggregate is only an aggregate when it combines accounts: each
+		// account row above already lists that account's windows, so a
+		// single-account card would print the same rows twice under a heading
+		// that promises a combination.
+		if (card.accounts > 1) {
+			lines.push(`  ${theme.fg("muted", "combined")}`);
+			lines.push(...this.#renderWindowLines(card.windows, width, "    ", undefined, card.accounts));
+		}
 		return lines;
 	}
 

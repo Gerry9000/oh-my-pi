@@ -589,6 +589,49 @@ describe("UsageDashboardComponent", () => {
 		);
 		component.dispose();
 	});
+	it("omits the combined block when a card has only one account", () => {
+		const resetBase = Date.now();
+		const component = new UsageDashboardComponent({
+			reports: [
+				report("cursor", "solo@x.test", [
+					limit("cursor", "solo", "monthly", "Cursor Models", 0.2, "ok", resetBase + 30_000),
+				]),
+			],
+			renderDetail: () => "",
+			loadActivity: async () => {},
+			requestRender: () => {},
+			onClose: () => {},
+		});
+
+		const overview = component.render(100).join("\n");
+		// The account row already lists this account's windows; a "combined"
+		// heading would promise an aggregation that does not exist.
+		expect(overview).toContain("solo@x.test");
+		expect(overview).toContain("Cursor Models");
+		expect(overview).not.toContain("combined");
+		component.dispose();
+	});
+	it("still combines when a card aggregates several accounts", () => {
+		const resetBase = Date.now();
+		const component = new UsageDashboardComponent({
+			reports: [
+				report("openai-codex", "a@x.test", [
+					limit("openai-codex", "a", "7d", "7 days", 0.2, "ok", resetBase + 10_000),
+				]),
+				report("openai-codex", "b@x.test", [
+					limit("openai-codex", "b", "7d", "7 days", 0.4, "ok", resetBase + 20_000),
+				]),
+			],
+			renderDetail: () => "",
+			loadActivity: async () => {},
+			requestRender: () => {},
+			onClose: () => {},
+		});
+
+		const overview = component.render(100).join("\n");
+		expect(overview).toContain("combined");
+		component.dispose();
+	});
 	it("renders specific error reason when activity loading fails instead of generic DB read error", async () => {
 		const { promise: rendered, resolve: markRendered } = Promise.withResolvers<void>();
 		const component = new UsageDashboardComponent({
