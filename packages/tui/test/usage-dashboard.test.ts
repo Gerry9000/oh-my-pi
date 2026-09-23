@@ -306,6 +306,32 @@ describe("buildProviderCards", () => {
 		expect(cards[0].accountStatuses[0].windows?.[0]?.status).toBe("exhausted");
 	});
 
+	it("classifies omitted statuses on the shared boundaries", () => {
+		// Same rule the detail view and `omp usage` now apply: these are the
+		// boundaries users notice, and the surface-splitting case (`unknown`
+		// reported alongside a spent fraction) must not read as unknown here.
+		const windowStatus = (usedFraction: number, status?: "unknown" | "exhausted") => {
+			const value = { ...limit("gemini", "a", "7d", "7 days", usedFraction, "ok"), status };
+			return buildProviderCards([report("gemini", "a@x.test", [value])], now)[0]?.windows[0]?.status;
+		};
+		expect(windowStatus(0.79)).toBe("ok");
+		expect(windowStatus(0.9)).toBe("warning");
+		expect(windowStatus(1)).toBe("exhausted");
+		expect(windowStatus(0.95, "unknown")).toBe("warning");
+		expect(windowStatus(1, "unknown")).toBe("exhausted");
+	});
+
+	it("reads a mixed bucket as warning rather than as its worst account", () => {
+		const cards = buildProviderCards(
+			[
+				report("gemini", "light@x.test", [limit("gemini", "light", "7d", "7 days", 0.1, "ok")]),
+				report("gemini", "spent@x.test", [limit("gemini", "spent", "7d", "7 days", 1, "exhausted")]),
+			],
+			now,
+		);
+		expect(cards[0].windows[0]?.status).toBe("warning");
+	});
+
 	it("aggregates reset inventory without showing a spent grant's earlier expiry", () => {
 		const claude = report("anthropic", "claude@example.test", [
 			limit("anthropic", "claude", "5h", "Claude 5 Hour", 0, "ok"),

@@ -1,4 +1,4 @@
-import type { UsageLimit, UsageReport } from "@oh-my-pi/pi-ai";
+import { resolveUsedFraction, type UsageLimit, type UsageReport } from "@oh-my-pi/pi-ai";
 import { sanitizeText } from "@oh-my-pi/pi-utils";
 import type { OAuthAccountIdentity } from "../../session/auth-storage";
 import {
@@ -104,7 +104,7 @@ function renderUsageReports(
 						: "";
 				lines.push(`- ${limit.label}${tier}${formatWindowSuffix(limit.label, window)}`);
 				lines.push(`  ${accountLabel}: ${formatUsageAmount(limit)}${inUse ? "  ← in use by this session" : ""}`);
-				lines.push(`  ${renderAsciiBar(limit.amount.usedFraction)}`);
+				lines.push(`  ${renderAsciiBar(resolveUsedFraction(limit))}`);
 				if (limit.window?.resetsAt && limit.window.resetsAt > nowMs) {
 					lines.push(
 						`  ${limit.window.resetLabel ?? "resets"} in ${formatCoarseDuration(limit.window.resetsAt - nowMs)}`,

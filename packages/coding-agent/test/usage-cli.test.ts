@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import type { UsageReport } from "@oh-my-pi/pi-ai";
+import chalk from "@oh-my-pi/pi-utils/chalk";
 import {
 	buildRedactionMap,
 	collectUnreportedAccounts,
@@ -786,5 +787,82 @@ describe("formatUsageHistory", () => {
 		const text = stripVTControlCharacters(formatUsageHistory(entries, SINCE, NOW, redaction));
 		expect(text).not.toContain("dummy.primary@example.test");
 		expect(text).toContain("du*");
+	});
+});
+
+describe("status classification parity", () => {
+	// Status is only visible as colour in this surface, so pin colour on for the
+	// test and restore whatever the runtime configured.
+	function withColor<T>(run: () => T): T {
+		const previous = chalk.level;
+		chalk.level = 3;
+		try {
+			return run();
+		} finally {
+			chalk.level = previous;
+		}
+	}
+
+	const geminiReport = (usedFraction: number, status?: "unknown" | "exhausted"): UsageReport =>
+		makeReport("gemini", "a@example.test", [
+			{
+				id: "gemini:7d",
+				label: "7 days",
+				scope: { provider: "gemini", windowId: "7d" },
+				window: { id: "7d", label: "7 days" },
+				amount: { unit: "percent", usedFraction },
+				...(status === undefined ? {} : { status }),
+			},
+		]);
+
+	it("colours a limit by its resolved status, not by the raw field", () => {
+		const exhausted = withColor(() => formatUsageBreakdown([geminiReport(1)], [], Date.now()));
+		const warning = withColor(() => formatUsageBreakdown([geminiReport(0.95)], [], Date.now()));
+		const healthy = withColor(() => formatUsageBreakdown([geminiReport(0.2)], [], Date.now()));
+
+		// Red/yellow/green differ from each other and from the dim "unknown" row.
+		expect(exhausted).not.toBe(warning);
+		expect(warning).not.toBe(healthy);
+		expect(exhausted).not.toBe(healthy);
+	});
+
+	it("treats a provider's unknown as unreported", () => {
+		const inferred = withColor(() => formatUsageBreakdown([geminiReport(1)], [], Date.now()));
+		const reported = withColor(() => formatUsageBreakdown([geminiReport(1, "exhausted")], [], Date.now()));
+		const unknown = withColor(() => formatUsageBreakdown([geminiReport(1, "unknown")], [], Date.now()));
+		expect(unknown).toBe(inferred);
+		expect(reported).toBe(inferred);
+	});
+
+	it("reads a mixed account group as warning rather than exhausted", () => {
+		const mixed = withColor(() =>
+			formatUsageBreakdown(
+				[
+					makeReport("gemini", "light@example.test", [
+						makeLimit({ id: "7d", provider: "gemini", usedFraction: 0.1, windowId: "7d" }),
+					]),
+					makeReport("gemini", "spent@example.test", [
+						makeLimit({ id: "7d", provider: "gemini", usedFraction: 1, windowId: "7d" }),
+					]),
+				],
+				[],
+				Date.now(),
+			),
+		);
+		const allSpent = withColor(() =>
+			formatUsageBreakdown(
+				[
+					makeReport("gemini", "spent-a@example.test", [
+						makeLimit({ id: "7d", provider: "gemini", usedFraction: 1, windowId: "7d" }),
+					]),
+					makeReport("gemini", "spent-b@example.test", [
+						makeLimit({ id: "7d", provider: "gemini", usedFraction: 1, windowId: "7d" }),
+					]),
+				],
+				[],
+				Date.now(),
+			),
+		);
+		expect(mixed).not.toBe(allSpent);
 	});
 });

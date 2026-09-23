@@ -8,13 +8,17 @@
  * always covers the full credential pool.
  */
 import {
+	aggregateUsageStatus,
 	ANTHROPIC_OAUTH_GRANT_TTL_MS,
 	type AuthStorage,
 	type DisabledCredentialSummary,
+	resolveLimitStatus,
+	resolveUsageStatus,
 	resolveUsedFraction,
 	type UsageHistoryEntry,
 	type UsageLimit,
 	type UsageReport,
+	type UsageStatus,
 	type UsageUnit,
 } from "@oh-my-pi/pi-ai";
 import { AuthBrokerClient } from "@oh-my-pi/pi-ai/auth-broker";
@@ -181,16 +185,8 @@ function collectIdentityStrings(
 	return values;
 }
 
-type LimitStatus = NonNullable<UsageLimit["status"]>;
-
-function resolveStatus(limit: UsageLimit): LimitStatus {
-	if (limit.status && limit.status !== "unknown") return limit.status;
-	const fraction = resolveUsedFraction(limit);
-	if (fraction === undefined) return "unknown";
-	if (fraction >= 1) return "exhausted";
-	if (fraction >= 0.8) return "warning";
-	return "ok";
-}
+/** Status as the CLI renders it: the shared enum, never `undefined`. */
+type LimitStatus = UsageStatus;
 
 const STATUS_COLOR: Record<LimitStatus, (text: string) => string> = {
 	exhausted: chalk.red,
@@ -198,15 +194,6 @@ const STATUS_COLOR: Record<LimitStatus, (text: string) => string> = {
 	ok: chalk.green,
 	unknown: chalk.dim,
 };
-
-/** Worst-of aggregation: exhausted > warning > ok > unknown. */
-function aggregateStatus(limits: UsageLimit[]): LimitStatus {
-	const statuses = limits.map(resolveStatus);
-	if (statuses.includes("exhausted")) return "exhausted";
-	if (statuses.includes("warning")) return "warning";
-	if (statuses.includes("ok")) return "ok";
-	return "unknown";
-}
 
 function formatUnitValue(value: number, unit: UsageUnit): string {
 	if (unit === "usd") return `$${value.toFixed(2)}`;
@@ -259,7 +246,7 @@ function renderBar(limit: UsageLimit): string {
 	if (fraction === undefined) return chalk.dim("·".repeat(BAR_WIDTH));
 	const clamped = Math.min(Math.max(fraction, 0), 1);
 	const filled = Math.round(clamped * BAR_WIDTH);
-	const color = STATUS_COLOR[resolveStatus(limit)];
+	const color = STATUS_COLOR[resolveLimitStatus(limit)];
 	return color("█".repeat(filled)) + chalk.dim("░".repeat(BAR_WIDTH - filled));
 }
 
@@ -406,7 +393,7 @@ function formatAccountHeader(
 	label: string,
 	redaction?: Map<string, string>,
 ): string {
-	const status = aggregateStatus(report.limits);
+	const status = aggregateUsageStatus(report.limits);
 	const icon = STATUS_COLOR[status]("●");
 	// The canonical label already carries the org as `(org)` when it differs
 	// from the base identity, so no separate org fragment is appended here.
@@ -441,7 +428,7 @@ function formatAccountHeader(
 }
 
 function formatLimitLine(limit: UsageLimit, labelWidth: number, nowMs: number): string[] {
-	const status = resolveStatus(limit);
+	const status = resolveLimitStatus(limit);
 	const title = limitTitle(limit);
 	const padded = title.padEnd(labelWidth);
 	const details: string[] = [describeAmount(limit)];
@@ -770,11 +757,7 @@ function historyAccountLabel(entry: UsageHistoryEntry): string {
 }
 
 function historyStatus(fraction: number | undefined, status: UsageHistoryEntry["status"]): LimitStatus {
-	if (status && status !== "unknown") return status;
-	if (fraction === undefined) return "unknown";
-	if (fraction >= 1) return "exhausted";
-	if (fraction >= 0.8) return "warning";
-	return "ok";
+	return resolveUsageStatus({ status, usedFraction: fraction });
 }
 
 /** Peak-per-bucket sparkline over [sinceMs, nowMs]; empty buckets render dim dots. */

@@ -6,7 +6,14 @@
  * Enter flips into the classic full per-account report, scrollable in place.
  */
 import * as os from "node:os";
-import { resolveUsedFraction, type UsageLimit, type UsageReport } from "@oh-my-pi/pi-ai";
+import {
+	aggregateUsageStatus,
+	aggregateUsageStatuses,
+	resolveUsedFraction,
+	type UsageLimit,
+	type UsageReport,
+	type UsageStatus,
+} from "@oh-my-pi/pi-ai";
 import { type Component, matchesKey, replaceTabs, routeSgrMouseInput, truncateToWidth, visibleWidth } from "../index";
 import { colorLuma, formatDuration, hexToRgb, rgbToHex, sanitizeText } from "@oh-my-pi/pi-utils";
 import { formatProviderName } from "../chrome/format";
@@ -53,7 +60,7 @@ export interface CardWindowRow {
 	windowTag?: string;
 	/** Combined used fraction (0..1, >1 = overage); undefined when unreported. */
 	fraction: number | undefined;
-	status: UsageLimit["status"];
+	status: UsageStatus;
 	/** Reset countdown of the worst account, ms from now, when in the future. */
 	resetMs?: number;
 	/** Absolute one-sided amount (e.g. `$12.34 used`, `100 credits left`) for limits without a fraction. */
@@ -70,7 +77,7 @@ export interface AccountAvailability {
 	/** Worst reported used fraction across this account's quota windows. */
 	fraction: number | undefined;
 	/** Availability derived from the account's individual limits. */
-	status: NonNullable<UsageLimit["status"]>;
+	status: UsageStatus;
 	/** Quota windows reported by this account, when available. */
 	windows?: CardWindowRow[];
 }
@@ -97,40 +104,6 @@ export interface ProviderCard {
 	};
 }
 
-/**
- * Resolve a limit status when a provider omits its normalized status field.
- * The dashboard still needs to distinguish available and exhausted accounts
- * when it has enough quantitative usage data to do so.
- */
-function resolveLimitStatus(limit: UsageLimit): NonNullable<UsageLimit["status"]> {
-	if (limit.status !== undefined) return limit.status;
-	const fraction = resolveUsedFraction(limit);
-	if (fraction !== undefined) {
-		if (fraction >= 1) return "exhausted";
-		if (fraction >= 0.9) return "warning";
-		return "ok";
-	}
-	if (limit.amount.remaining !== undefined) return limit.amount.remaining > 0 ? "ok" : "exhausted";
-	return "unknown";
-}
-
-/**
- * Aggregate status across a bucket's limits, mirroring the classic report:
- * a mix of healthy and pressured accounts reads as a warning, not as the
- * worst account's status.
- */
-function aggregateStatus(
-	limits: readonly { status?: NonNullable<UsageLimit["status"]> }[],
-): NonNullable<UsageLimit["status"]> {
-	const hasOk = limits.some(limit => limit.status === "ok");
-	const hasWarning = limits.some(limit => limit.status === "warning");
-	const hasExhausted = limits.some(limit => limit.status === "exhausted");
-	if (hasOk) return hasWarning || hasExhausted ? "warning" : "ok";
-	if (hasWarning) return "warning";
-	if (hasExhausted) return "exhausted";
-	return "unknown";
-}
-
 function usageLimitTitle(report: UsageReport, limit: UsageLimit, planType = planTypeKey(report)): string {
 	const label = formatLimitTitle(limit);
 	const isCodexLimit = report.provider === "openai-codex";
@@ -140,9 +113,9 @@ function usageLimitTitle(report: UsageReport, limit: UsageLimit, planType = plan
 	return `${label} (${planType})`;
 }
 
-function accountStatus(report: UsageReport): NonNullable<UsageLimit["status"]> {
+function accountStatus(report: UsageReport): UsageStatus {
 	if (report.limits.length === 0) return "ok";
-	return aggregateStatus(report.limits.map(limit => ({ status: resolveLimitStatus(limit) })));
+	return aggregateUsageStatus(report.limits);
 }
 
 function accountAvailability(report: UsageReport, label: string, nowMs: number): AccountAvailability {
@@ -316,7 +289,7 @@ function buildWindowRow(bucket: WindowBucket, nowMs: number): CardWindowRow {
 		label: bucket.label,
 		windowTag: worst.window ? compactWindowTag(worst.window) : undefined,
 		fraction,
-		status: aggregateStatus(bucket.limits.map(limit => ({ status: resolveLimitStatus(limit) }))),
+		status: aggregateUsageStatus(bucket.limits),
 		resetMs: resetsAt !== undefined && resetsAt > nowMs ? resetsAt - nowMs : undefined,
 		usedText: fraction === undefined ? formatAbsoluteOnlyAmount(bucket.limits) : undefined,
 		reportedAccounts: bucket.reportedAccounts,
@@ -602,27 +575,27 @@ export class UsageDashboardComponent implements Component {
 	// Subscriptions grid rendering
 	// ---------------------------------------------------------------------------
 
-	#statusIcon(status: UsageLimit["status"]): string {
+	#statusIcon(status: UsageStatus): string {
 		if (status === "exhausted") return theme.fg("error", theme.status.error);
 		if (status === "warning") return theme.fg("warning", theme.status.warning);
 		if (status === "ok") return theme.fg("success", theme.status.success);
 		return theme.fg("dim", theme.status.info);
 	}
 
-	#statusColor(status: UsageLimit["status"]): "success" | "warning" | "error" | "dim" {
+	#statusColor(status: UsageStatus): "success" | "warning" | "error" | "dim" {
 		if (status === "exhausted") return "error";
 		if (status === "warning") return "warning";
 		if (status === "ok") return "success";
 		return "dim";
 	}
-	#statusLabel(status: NonNullable<UsageLimit["status"]>): string {
+	#statusLabel(status: UsageStatus): string {
 		if (status === "ok") return "available";
 		if (status === "warning") return "warning";
 		if (status === "exhausted") return "exhausted";
 		return "unknown";
 	}
 
-	#miniBar(fraction: number | undefined, status: UsageLimit["status"], width: number): string {
+	#miniBar(fraction: number | undefined, status: UsageStatus, width: number): string {
 		if (fraction === undefined) return theme.fg("dim", "·".repeat(width));
 		const clamped = Math.min(Math.max(fraction, 0), 1);
 		const filled = Math.round(clamped * width);
@@ -749,7 +722,7 @@ export class UsageDashboardComponent implements Component {
 
 	#renderCardLines(card: ProviderCard, width: number): string[] {
 		const lines: string[] = [];
-		const cardStatus = card.unlimited ? "ok" : aggregateStatus(card.windows);
+		const cardStatus = card.unlimited ? "ok" : aggregateUsageStatuses(card.windows.map(window => window.status));
 		const accountsText = card.accounts > 1 ? theme.fg("dim", `${card.accounts} accts`) : "";
 		const titleBudget = width - 2 - visibleWidth(accountsText) - (accountsText ? 1 : 0);
 		const title = theme.bold(truncateToWidth(card.name, Math.max(4, titleBudget)));

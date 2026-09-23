@@ -3,12 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { CompactionCancelledError, type CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
 import {
+	aggregateUsageStatus,
 	getEnvApiKey,
 	getProviderDetails,
 	type ProviderDetails,
+	resolveLimitStatus,
 	resolveUsedFraction,
 	type UsageLimit,
 	type UsageReport,
+	type UsageStatus,
 } from "@oh-my-pi/pi-ai";
 import { Loader, Markdown, padding, Spacer, Text, visibleWidth } from "@oh-my-pi/pi-tui";
 import { formatDuration, logger, Snowflake, sanitizeText } from "@oh-my-pi/pi-utils";
@@ -1885,20 +1888,17 @@ function padColumn(text: string, width: number): string {
 	return `${text}${padding(width - visible)}`;
 }
 
-type AggregateDisplayStatus = NonNullable<UsageLimit["status"]> | "neutral";
+type AggregateDisplayStatus = UsageStatus | "neutral";
 
+/**
+ * Group status for one quota row: the shared aggregation rule, plus the
+ * detail view's own `neutral` state for a row that reports only an absolute
+ * spend (nothing to visualize, so it must not read as a pending/unknown quota).
+ */
 function resolveAggregateStatus(limits: UsageLimit[]): AggregateDisplayStatus {
-	const hasOk = limits.some(limit => limit.status === "ok");
-	const hasWarning = limits.some(limit => limit.status === "warning");
-	const hasExhausted = limits.some(limit => limit.status === "exhausted");
-	if (!hasOk && !hasWarning && !hasExhausted) {
-		return limits.length > 0 && limits.every(isUsedOnlyAbsoluteAmount) ? "neutral" : "unknown";
-	}
-	if (hasOk) {
-		return hasWarning || hasExhausted ? "warning" : "ok";
-	}
-	if (hasWarning) return "warning";
-	return "exhausted";
+	const status = aggregateUsageStatus(limits);
+	if (status === "unknown" && limits.length > 0 && limits.every(isUsedOnlyAbsoluteAmount)) return "neutral";
+	return status;
 }
 
 function formatAggregateAmount(limits: UsageLimit[]): string {
@@ -1968,7 +1968,7 @@ function resolveStatusIcon(status: AggregateDisplayStatus, uiTheme: Theme): stri
 	return uiTheme.fg("dim", uiTheme.status.pending);
 }
 
-function resolveStatusColor(status: UsageLimit["status"]): "success" | "warning" | "error" | "dim" {
+function resolveStatusColor(status: UsageStatus): "success" | "warning" | "error" | "dim" {
 	if (status === "exhausted") return "error";
 	if (status === "warning") return "warning";
 	if (status === "ok") return "success";
@@ -1997,7 +1997,7 @@ function renderUsageBar(limit: UsageLimit, uiTheme: Theme, barWidth: number): st
 	else if (remainder >= 1 / 3) partial = "▒";
 	const leading = "█".repeat(fullCells) + partial;
 	const empty = "░".repeat(Math.max(0, barWidth - fullCells - (partial ? 1 : 0)));
-	const color = resolveStatusColor(limit.status);
+	const color = resolveStatusColor(resolveLimitStatus(limit));
 	return `${uiTheme.fg(color, leading)}${uiTheme.fg("dim", empty)}`;
 }
 

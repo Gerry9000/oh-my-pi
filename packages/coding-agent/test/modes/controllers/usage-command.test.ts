@@ -274,4 +274,41 @@ describe("renderUsageReports content", () => {
 			expect(stripVTControlCharacters(renderUsageReports([...reports], theme, now, 120)), label).toContain(expected);
 		}
 	});
+
+	it("classifies an omitted status the same way the dashboard does", () => {
+		// The dismissed review finding: a limit with no provider status used to
+		// render a dim/unknown group icon here while the dashboard inferred a
+		// verdict from the same numbers.
+		const now = Date.now();
+		const gemini = (usedFraction: number, status?: "unknown"): UsageReport => ({
+			provider: "gemini",
+			fetchedAt: now,
+			metadata: { email: "a@example.test" },
+			limits: [
+				{
+					id: "gemini:7d",
+					label: "7 days",
+					scope: { provider: "gemini", windowId: "7d" },
+					window: { id: "7d", label: "7 days" },
+					amount: { usedFraction, unit: "percent" },
+					...(status === undefined ? {} : { status }),
+				},
+			],
+		});
+
+		const groupIcon = (report: UsageReport): string => {
+			const lines = stripVTControlCharacters(renderUsageReports([report], theme, now, 100)).split("\n");
+			return lines.find(line => line.includes("7 days")) ?? "";
+		};
+
+		// Same glyph as the dashboard's verdict for these fractions.
+		expect(groupIcon(gemini(1))).toContain("✘");
+		expect(groupIcon(gemini(0.95))).toContain("⚠");
+		expect(groupIcon(gemini(0.2))).toContain("✔");
+		// `unknown` is unreported, not a verdict: the fraction still decides.
+		expect(groupIcon(gemini(1, "unknown"))).toContain("✘");
+		expect(groupIcon(gemini(1))).toBe(
+			groupIcon({ ...gemini(1), limits: [{ ...gemini(1).limits[0]!, status: "exhausted" }] }),
+		);
+	});
 });
