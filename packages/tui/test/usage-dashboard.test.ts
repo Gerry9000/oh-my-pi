@@ -272,43 +272,88 @@ describe("buildProviderCards", () => {
 	it("collapses an account-wide balance reported once per key, whatever the order", () => {
 		// AuthStorage probes every stored key, so a two-key Charm Hyper account
 		// yields two shared rows for one pool. The two probes fire moments
+
 		// apart against a moving balance, so they rarely agree exactly — the
 		// values differ here deliberately, or reversing them would prove
 		// nothing and a first-wins implementation would still pass.
-		const balance = (remaining: number) => ({
+		const balance = (remaining: number, sharedGroup: string) => ({
 			id: "charm-hyper:credits",
 			label: "Credit balance",
-			scope: { provider: "charm-hyper" as const, windowId: "balance", shared: true },
+			scope: {
+				provider: "charm-hyper" as const,
+				windowId: "balance",
+				shared: true,
+				sharedGroup,
+			},
 			amount: { remaining, unit: "credits" as const },
 		});
-		const forward = buildProviderCards(
-			[report("charm-hyper", "a@x.test", [balance(100)]), report("charm-hyper", "a@x.test", [balance(95)])],
-			now,
-		);
-		const reversed = buildProviderCards(
-			[report("charm-hyper", "a@x.test", [balance(95)]), report("charm-hyper", "a@x.test", [balance(100)])],
+		const charmReport = (remaining: number, endpoint = "https://api.example.test/credits"): UsageReport => ({
+			provider: "charm-hyper",
+			fetchedAt: Date.now(),
+			limits: [balance(remaining, `charm-hyper:credits:${endpoint}`)],
+			metadata: { endpoint },
+		});
+		const forward = buildProviderCards([charmReport(100), charmReport(95)], now);
+		const reversed = buildProviderCards([charmReport(95), charmReport(100)], now);
+		const separateEndpoints = buildProviderCards(
+			[charmReport(100), charmReport(95, "https://other.example.test/credits")],
 			now,
 		);
 
 		// One pool, so never the 195 a sum would claim, and never dependent on
-		// which credential happened to be probed first.
+		// which credential happened to be probed first. Distinct endpoint pools
+		// are independent and therefore do add up in the combined amount.
 		expect(forward[0].windows[0].usedText).toBe("100 credits left");
 		expect(reversed[0].windows[0].usedText).toBe("100 credits left");
+		expect(separateEndpoints[0].windows[0].usedText).toBe("195 credits left");
+		expect(separateEndpoints[0].accounts).toBe(2);
 		expect(forward[0].accounts).toBe(1);
 		expect(forward[0].accountStatuses).toHaveLength(1);
 		expect(reversed[0].accounts).toBe(1);
 		expect(reversed[0].accountStatuses).toHaveLength(1);
 	});
+	it("sums independent shared balances by account identity", () => {
+		const balance = (accountId: string, remaining: number): UsageReport => ({
+			provider: "zai",
+			fetchedAt: Date.now(),
+			limits: [
+				{
+					id: "zai:credits",
+					label: "Credits",
+					scope: { provider: "zai", accountId, windowId: "credits", shared: true },
+					window: { id: "credits", label: "credits" },
+					amount: { remaining, unit: "credits" },
+				},
+			],
+			metadata: { accountId, email: `${accountId}@example.test` },
+		});
+		const card = buildProviderCards([balance("acct-a", 100), balance("acct-b", 50)], now)[0];
+		expect(card.windows[0]?.usedText).toBe("150 credits left");
+	});
 
 	it("qualifies same-email accounts with their organization", () => {
 		const makeReport = (orgName: string) => ({
 			...report("anthropic", "same@example.test", [limit("anthropic", "account", "7d", "Claude 7 Day", 0.2, "ok")]),
-			metadata: { email: "same@example.test", orgName },
+			metadata: { email: "same@example.test", orgId: `id-${orgName}`, orgName },
 		});
 		const accounts = buildProviderCards([makeReport("Org A"), makeReport("Org B")], now)[0].accountStatuses;
 		expect(accounts.map(account => account.label)).toEqual([
 			"same@example.test (Org A)",
 			"same@example.test (Org B)",
+		]);
+	});
+
+	it("falls back to the org id when a subscription carries no org name", () => {
+		// A token response can carry the org uuid without a display name; the
+		// uuid is the scoped identity, so it must still separate the two rows.
+		const makeReport = (orgId: string) => ({
+			...report("anthropic", "same@example.test", [limit("anthropic", "account", "7d", "Claude 7 Day", 0.2, "ok")]),
+			metadata: { email: "same@example.test", orgId },
+		});
+		const accounts = buildProviderCards([makeReport("org-team"), makeReport("org-max")], now)[0].accountStatuses;
+		expect(accounts.map(account => account.label)).toEqual([
+			"same@example.test (org-team)",
+			"same@example.test (org-max)",
 		]);
 	});
 
@@ -525,6 +570,7 @@ describe("UsageDashboardComponent", () => {
 			component.dispose();
 		}
 	});
+
 	it("lists each account's availability and quota windows in the initial dashboard", () => {
 		const resetBase = Date.now();
 		const component = new UsageDashboardComponent({
@@ -559,7 +605,11 @@ describe("UsageDashboardComponent", () => {
 		expect(overview).toContain("Monthly");
 		expect(overview).toContain("100% free");
 		expect(overview).toContain("1/2");
-		expect(overview).toContain("idle@x.test");
+		const partialQuotaLine = overview.split("\n").find(line => line.includes("1/2"));
+		expect(partialQuotaLine).toBeDefined();
+		expect(partialQuotaLine).toMatch(/10\.\ds/);
+		// The Cursor card holds a single account, so it renders through the grid
+		// and carries no account label — only aggregating cards list their accounts.
 		expect(overview).not.toContain("untouched:");
 		expect(overview).toMatch(/10\.\ds/);
 		expect(overview).toMatch(/20\.\ds/);
@@ -567,6 +617,57 @@ describe("UsageDashboardComponent", () => {
 		const narrowQuotaLine = narrowOverview.split("\n").find(line => line.includes("7 days"));
 		expect(narrowQuotaLine).toBeDefined();
 		expect(narrowQuotaLine ? (narrowQuotaLine.match(/█/g) ?? []).length : 0).toBeGreaterThanOrEqual(8);
+		const monthlyLine = overview.split("\n").find(line => line.includes("Monthly") && line.includes("1/2"));
+		const sevenDayLine = overview.split("\n").find(line => line.includes("7 days") && line.includes("50%"));
+		expect(monthlyLine).toBeDefined();
+		expect(sevenDayLine).toBeDefined();
+		expect(monthlyLine ? (monthlyLine.match(/[█░]/g) ?? []).length : 0).toBe(
+			sevenDayLine ? (sevenDayLine.match(/[█░]/g) ?? []).length : 0,
+		);
+		component.dispose();
+	});
+	it("renders a single-account card through the shared grid, with no account breakdown", () => {
+		const resetBase = Date.now();
+		const component = new UsageDashboardComponent({
+			reports: [
+				report("cursor", "solo@x.test", [
+					limit("cursor", "solo", "monthly", "Cursor Models", 0.2, "ok", resetBase + 30_000),
+				]),
+			],
+			renderDetail: () => "",
+			loadActivity: async () => {},
+			requestRender: () => {},
+			onClose: () => {},
+		});
+
+		const overview = component.render(100).join("\n");
+		// One account renders as one card's worth of grid rows. The per-account
+		// breakdown is reserved for cards that actually aggregate accounts, so a
+		// single-account card never repeats its quota rows under an account label.
+		expect(overview).toContain("Cursor Models");
+		expect(overview).not.toContain("combined");
+		expect(overview.match(/Cursor Models/g)).toHaveLength(1);
+		component.dispose();
+	});
+	it("still combines when a card aggregates several accounts", () => {
+		const resetBase = Date.now();
+		const component = new UsageDashboardComponent({
+			reports: [
+				report("openai-codex", "a@x.test", [
+					limit("openai-codex", "a", "7d", "7 days", 0.2, "ok", resetBase + 10_000),
+				]),
+				report("openai-codex", "b@x.test", [
+					limit("openai-codex", "b", "7d", "7 days", 0.4, "ok", resetBase + 20_000),
+				]),
+			],
+			renderDetail: () => "",
+			loadActivity: async () => {},
+			requestRender: () => {},
+			onClose: () => {},
+		});
+
+		const overview = component.render(100).join("\n");
+		expect(overview).toContain("combined");
 		component.dispose();
 	});
 	it("renders specific error reason when activity loading fails instead of generic DB read error", async () => {
