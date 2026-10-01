@@ -52,6 +52,11 @@ function accountBaseLabel(report: UsageReport): string | undefined {
 
 function accountOrgLabel(report: UsageReport): string | undefined {
 	const identity = reportIdentity(report);
+	// Codex's `orgName` is the login-time plan ("free", "pro"), not a workspace
+	// name, so rendering it as an org qualifier would print a plan as if it were
+	// an organization. Codex rows carry the plan separately and qualify by
+	// `orgId` instead.
+	if (report.provider === "openai-codex") return identity.orgId;
 	return identity.orgName ?? identity.orgId;
 }
 

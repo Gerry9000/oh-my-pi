@@ -8,7 +8,7 @@ import {
 	summarizeUsageResetCredits,
 } from "@oh-my-pi/pi-tui/overlays/usage-display";
 import type { SlashCommandRuntime } from "../types";
-import { reportMatchesActiveAccount } from "./active-oauth-account";
+import { codexUsagePlan, reportMatchesActiveAccount } from "./active-oauth-account";
 import { formatCoarseDuration, formatProviderName, renderAsciiBar } from "@oh-my-pi/pi-tui/chrome/format";
 
 function formatWindowSuffix(label: string, windowLabel: string | undefined): string {
@@ -63,7 +63,11 @@ function renderUsageReports(
 			lines.push(`  ${sanitizeText(note.replace(/[\r\n]+/g, " ").replace(/\t/g, "  "))}`);
 		const accountLabels = accountLabelsFor(providerReports);
 		providerReports.forEach((report, reportIndex) => {
-			const accountLabel = accountLabels[reportIndex] ?? `account ${reportIndex + 1}`;
+			// Codex qualifies its identity with the login-time plan; every other
+			// provider's unified label already carries org and collision suffixes.
+			const baseLabel = accountLabels[reportIndex] ?? `account ${reportIndex + 1}`;
+			const plan = codexUsagePlan(report);
+			const accountLabel = plan ? `${baseLabel} · plan: ${plan}` : baseLabel;
 			const inUse = reportMatchesActiveAccount(report, activeAccount);
 			const resets = summarizeUsageResetCredits(report.resetCredits, nowMs);
 			if (resets && resets.bankedCount > 0) {
@@ -135,10 +139,7 @@ export async function buildUsageReportText(runtime: SlashCommandRuntime): Promis
 		if (reports && reports.length > 0) {
 			const currentProvider = runtime.session.model?.provider;
 			const activeAccount = currentProvider
-				? runtime.session.modelRegistry.authStorage.getOAuthAccountIdentity(
-						currentProvider,
-						runtime.session.sessionId,
-					)
+				? runtime.session.modelRegistry.authStorage.oauth.identity(currentProvider, runtime.session.sessionId)
 				: undefined;
 			const usageModelSelectors = provider.getUsageReportingModelSelectors?.(reports) ?? [];
 			return renderUsageReports(
