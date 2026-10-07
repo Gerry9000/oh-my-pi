@@ -143,9 +143,9 @@ function usageLimitTitle(report: UsageReport, limit: UsageLimit, planType = plan
  * Card status when some connected accounts reported no usage: the missing
  * report raises the card to a warning but never hides an exhausted quota.
  */
-function statusWithUnavailableAccounts(windows: readonly { status?: UsageLimit["status"] }[]): UsageLimit["status"] {
+function statusWithUnavailableAccounts(windows: readonly { status?: UsageStatus }[]): UsageStatus {
 	if (windows.length === 0) return "unknown";
-	return aggregateUsageStatuses(windows.map(window => window.status)) === "exhausted" ? "exhausted" : "warning";
+	return aggregateUsageStatuses(windows.map(window => window.status ?? "unknown")) === "exhausted" ? "exhausted" : "warning";
 }
 
 /** Fraction below which a window counts as untouched (renders as 100% free). */
@@ -926,7 +926,7 @@ export class UsageDashboardComponent implements Component {
 				? statusWithUnavailableAccounts(card.windows)
 				: card.unlimited
 					? "ok"
-					: aggregateUsageStatuses(card.windows.map(window => window.status));
+					: aggregateUsageStatuses(card.windows.map(window => window.status ?? "unknown"));
 		const accountsText = card.accounts > 1 ? theme.fg("dim", `${card.accounts} accts`) : "";
 		const titleBudget = width - 2 - visibleWidth(accountsText) - (accountsText ? 1 : 0);
 		const title = theme.bold(truncateToWidth(card.name, Math.max(4, titleBudget)));
