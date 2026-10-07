@@ -1,6 +1,9 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+
+- Usage surfaces now classify a limit through one shared contract instead of per-surface rules, and quantitative exhaustion overrides a lenient provider stamp.
 
 ## [18.8.3] - 2026-10-07
 
@@ -300,10 +303,6 @@
 
 - Fixed Claude Opus 5.5 not applying a mid-session switch to high-effort reasoning when the session started without an explicit effort setting.
 - Fixed Alibaba Token Plan monthly quotas not appearing in usage reports or the status line.
-
-### Fixed
-
-- Usage surfaces now classify a limit through one shared contract (`usageStatus`, `resolveUsageStatus`, `resolveLimitStatus`, `aggregateUsageStatus`) instead of per-surface rules, so a limit whose provider omitted `status` no longer reads `ok` on one surface and `exhausted` on another. An explicit `unknown` is treated as unreported rather than as a verdict, matching the credential-exhaustion check. Providers that classify deliberately (openai-codex credit-funded overage, umans' soft cap, github-copilot's unlimited rows) keep their own predicates, since their emitted status drives routing.
 
 ## [18.2.9] - 2026-09-22
 

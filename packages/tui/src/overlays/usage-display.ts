@@ -275,6 +275,15 @@ export function collapseSharedAccountReports(reports: UsageReport[]): UsageRepor
 	return collapsed;
 }
 
+/**
+ * Both shared-report collapses in display order: usage-level dedup first,
+ * then account-level pooling. Every usage surface must apply both, so call
+ * this instead of composing the two halves inline.
+ */
+export function collapseSharedReports(reports: UsageReport[]): UsageReport[] {
+	return collapseSharedAccountReports(collapseSharedUsageReports(reports));
+}
+
 /** Include the usage tier in a limit title unless its label already names it. */
 export function formatLimitTitle(limit: UsageLimit): string {
 	const tier = limit.scope.tier;

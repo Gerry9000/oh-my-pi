@@ -99,6 +99,7 @@ import {
 	accountLabelsFor,
 	aggregationLimit,
 	collapseSharedAccountReports,
+	collapseSharedReports,
 	collapseSharedUsageReports,
 	composeAccountLabel,
 	formatLimitTitle,
@@ -2279,7 +2280,7 @@ export function renderUsageReports(
 	usageModelSelectors: readonly string[] = [],
 	unavailableAccounts: readonly UnavailableUsageAccount[] = [],
 ): string {
-	const displayReports = collapseSharedAccountReports(collapseSharedUsageReports(reports));
+	const displayReports = collapseSharedReports(reports);
 	const lines: string[] = [];
 	const latestFetchedAt = Math.max(0, ...reports.map(report => report.fetchedAt ?? 0));
 	const headerSuffix = latestFetchedAt ? ` (${formatDuration(nowMs - latestFetchedAt)} ago)` : "";

@@ -287,9 +287,10 @@ describe("buildProviderCards", () => {
 			},
 			amount: { remaining, unit: "credits" as const },
 		});
+		const probedAt = Date.now();
 		const charmReport = (remaining: number, endpoint = "https://api.example.test/credits"): UsageReport => ({
 			provider: "charm-hyper",
-			fetchedAt: Date.now(),
+			fetchedAt: probedAt,
 			limits: [balance(remaining, `charm-hyper:credits:${endpoint}`)],
 			metadata: { endpoint },
 		});

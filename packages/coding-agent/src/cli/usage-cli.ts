@@ -36,8 +36,7 @@ import { resolveAuthBrokerConfig } from "../session/auth-broker-config";
 import {
 	accountLabelPartsFor,
 	type AccountLabelParts,
-	collapseSharedAccountReports,
-	collapseSharedUsageReports,
+	collapseSharedReports,
 	composeAccountLabel,
 	summarizeUsageResetCredits,
 } from "@oh-my-pi/pi-tui/overlays/usage-display";
@@ -635,7 +634,7 @@ export function formatUsageBreakdown(
 	disabled: DisabledCredentialSummary[] = [],
 	policyOptions?: UsagePolicyDiagnosticsOptions,
 ): string {
-	const displayReports = collapseSharedAccountReports(collapseSharedUsageReports(reports));
+	const displayReports = collapseSharedReports(reports);
 	const reportsByProvider = new Map<string, UsageReport[]>();
 	for (const report of displayReports) {
 		const list = reportsByProvider.get(report.provider) ?? [];
@@ -1203,7 +1202,7 @@ export async function runUsageCommand(cmd: UsageCommandArgs): Promise<void> {
 		if (cmd.json) {
 			// Merge per-credential probes of one account-wide pool first, so the
 			// JSON surface reports the same accounts and capacity as the text view.
-			const displayReports = collapseSharedAccountReports(collapseSharedUsageReports(filteredReports));
+			const displayReports = collapseSharedReports(filteredReports);
 			// Drop the heavy provider-specific `raw` payload — same shape as the
 			// broker/gateway `/v1/usage` endpoints.
 			let trimmed = displayReports.map(({ raw: _raw, ...rest }) => rest);

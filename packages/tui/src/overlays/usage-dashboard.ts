@@ -30,7 +30,7 @@ import {
 	accountLabel,
 	accountLabelsFor,
 	aggregationLimit,
-	collapseSharedAccountReports,
+	collapseSharedReports,
 	collapseSharedUsageReports,
 	formatLimitTitle,
 	isNonEmptyString,
@@ -362,7 +362,7 @@ export function buildProviderCards(
 	nowMs: number,
 	unavailableAccounts: readonly UnavailableUsageAccount[] = [],
 ): ProviderCard[] {
-	const displayReports = collapseSharedAccountReports(collapseSharedUsageReports(reports));
+	const displayReports = collapseSharedReports(reports);
 	const grouped = new Map<string, UsageReport[]>();
 	for (const report of displayReports) {
 		const list = grouped.get(report.provider) ?? [];

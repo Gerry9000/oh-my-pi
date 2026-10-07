@@ -1,6 +1,17 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+
+- Usage views no longer merge distinct accounts of a provider that marks every window `shared` without exposing an account identity or a pool group: collapsing now requires positive evidence instead of `scope.shared` alone.
+
+- Usage cards no longer print a `combined` quota block when only one account reports for the provider.
+
+- Usage dashboard status classification now uses the shared limit-status contract, and quantitative exhaustion overrides a lenient provider stamp.
+
+### Changed
+
+- Expanded the initial `/usage` dashboard to show each account's identity, availability status, remaining percentage, and individual quota windows instead of only provider-level aggregates. Combined rows preserve tier boundaries, weight absolute quotas by capacities, and show partial-account coverage across eligible plan accounts.
 
 ## [18.8.2] - 2026-10-07
 
@@ -471,14 +482,6 @@
 - Added support for multiple concurrent TUI paint listeners to enable simultaneous session recording and streaming
 - Coalesced status event updates for progress-based operations to reduce TUI render overhead
 
-### Fixed
-
-- Usage views no longer merge distinct accounts of a provider that marks every window `shared` without exposing an account identity or a pool group (opencode-go, synthetic): collapsing now requires positive evidence — an account identity or an explicit `sharedGroup` — instead of `scope.shared` alone, so a three-key provider shows three accounts rather than one.
-
-- Usage cards no longer print a `combined` quota block when only one account reports for the provider: the account row above already lists that account's windows, so the block duplicated them under a heading that promises an aggregation.
-
-- Usage dashboard status classification now uses the shared limit-status contract: an omitted status is inferred from the used fraction on the same boundaries and thresholds as the other usage surfaces, and a bucket that mixes healthy and pressured accounts reads as a warning rather than as its worst account.
-
 ## [18.2.9] - 2026-09-22
 
 ### Added
@@ -493,10 +496,6 @@
 - Fixed cursor placement when recalling prompts from history, keeping single-line entries at the end and preserving the appropriate position for multi-line entries.
 - Restored modified-key handling and terminal notifications over SSH sessions running inside tmux.
 - Fixed typed Enter occasionally being interpreted as a literal newline when terminal input events are batched.
-
-### Changed
-
-- Expanded the initial `/usage` dashboard to show each account's identity, availability status, remaining percentage, and individual quota windows instead of only provider-level aggregates. Combined rows now preserve tier boundaries, weight absolute quotas by their capacities, and show partial-account coverage only across eligible plan accounts (including Pro-only reserve buckets).
 
 ## [18.2.8] - 2026-09-21
 
@@ -1152,7 +1151,7 @@
 
 ### Changed
 
-- Improved native scrollback history management by introducing an optional erase-and-replay mechanism to rebuild scrollback when mutated rows (such as finalized tool blocks or collapsed transcripts) diverge. This is now gated behind the `tui.scrollbackRebuild` setting and defaults to off.
+ - Improved native scrollback history management by introducing an optional erase-and-replay mechanism to rebuild scrollback when mutated rows (such as finalized tool blocks or collapsed transcripts) diverge. This is now gated behind the `tui.scrollbackRebuild` setting and defaults to off.
 
 ### Fixed
 
