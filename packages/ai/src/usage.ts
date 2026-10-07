@@ -215,7 +215,16 @@ export function usageStatus(usedFraction: number | undefined, warningAt = USAGE_
  * the producer-written `UsageLimit.status` directly.
  */
 export function resolveUsageStatus(input: UsageStatusInput): UsageStatus {
-	if (input.status !== undefined && input.status !== "unknown") return input.status;
+	// Quantitative exhaustion overrides a lenient provider status, but only
+	// when the signals agree: a present fraction outranks an absolute
+	// remaining balance (mixed units disagree), and a stale provider stamp
+	// never outranks a spent meter.
+	if (input.usedFraction !== undefined && input.usedFraction >= 1) return "exhausted";
+	if (input.status !== undefined && input.status !== "unknown") {
+		if (input.status === "exhausted") return "exhausted";
+		if (input.remaining !== undefined && input.usedFraction === undefined && input.remaining <= 0) return "exhausted";
+		return input.status;
+	}
 	const warningAt = input.warningAt ?? USAGE_WARNING_FRACTION;
 	if (input.usedFraction !== undefined) return usageStatus(input.usedFraction, warningAt);
 	if (input.remaining !== undefined) return input.remaining > 0 ? "ok" : "exhausted";

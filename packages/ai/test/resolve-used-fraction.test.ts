@@ -126,9 +126,10 @@ describe("usageStatus", () => {
 });
 
 describe("resolveUsageStatus", () => {
-	it("lets an explicit status win over the fraction", () => {
+	it("lets an explicit status win except when the meter proves exhaustion", () => {
 		expect(resolveUsageStatus({ status: "exhausted", usedFraction: 0 })).toBe("exhausted");
-		expect(resolveUsageStatus({ status: "ok", usedFraction: 1 })).toBe("ok");
+		expect(resolveUsageStatus({ status: "ok", usedFraction: 1 })).toBe("exhausted");
+		expect(resolveUsageStatus({ status: "warning", usedFraction: 1 })).toBe("exhausted");
 		expect(resolveUsageStatus({ status: "warning", usedFraction: 0.1 })).toBe("warning");
 	});
 
