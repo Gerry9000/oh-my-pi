@@ -103,11 +103,31 @@ describe("buildProviderCards", () => {
 			["exhausted", 1],
 			["ok", 0],
 		]);
+		// Header icon color follows the per-account status: the spent account
+		// earns the error tone even though the pooled window reads warning.
+		const accountIcons = cards[0].accountStatuses.map(account =>
+			account.status === "exhausted" ? "error" : account.status === "warning" ? "warning" : "success",
+		);
+		expect(accountIcons).toEqual(["error", "success"]);
 		expect(cards[0].accountStatuses.map(account => account.windows?.map(window => window.label))).toEqual([
 			["Claude 7 Day"],
 			["Claude 7 Day"],
 		]);
 		expect(cards[0].accountStatuses.map(account => account.windows?.[0]?.resetMs)).toEqual([1000, 99000]);
+	});
+
+	it("reads one account's exhausted window as exhausted even beside a healthy window", () => {
+		const cards = buildProviderCards(
+			[
+				report("anthropic", "solo@x.test", [
+					limit("anthropic", "solo", "5h", "Claude 5 Hour", 1.0, "exhausted", now + 1000),
+					limit("anthropic", "solo", "7d", "Claude 7 Day", 0.2, "ok", now + 2000),
+				]),
+			],
+			now,
+		);
+		expect(cards[0].accountStatuses).toHaveLength(1);
+		expect(cards[0].accountStatuses[0]?.status).toBe("exhausted");
 	});
 
 	it("weights combined absolute quotas by their capacities", () => {
@@ -625,6 +645,33 @@ describe("UsageDashboardComponent", () => {
 		expect(monthlyLine ? (monthlyLine.match(/[█░]/g) ?? []).length : 0).toBe(
 			sevenDayLine ? (sevenDayLine.match(/[█░]/g) ?? []).length : 0,
 		);
+		component.dispose();
+	});
+	it("caps per-account windows at the shared card cap with a +N more line", () => {
+		const resetBase = Date.now();
+		const windows = Array.from({ length: 6 }, (_, index) =>
+			limit("openai-codex", "a", `w${index}`, `Window ${index}`, 0.1 * index, "ok", resetBase + 10_000),
+		);
+		const component = new UsageDashboardComponent({
+			reports: [
+				report("openai-codex", "a@x.test", windows),
+				report("openai-codex", "b@x.test", [
+					limit("openai-codex", "b", "7d", "7 days", 0, "ok", resetBase + 20_000),
+				]),
+			],
+			renderDetail: () => "",
+			loadActivity: async () => {},
+			requestRender: () => {},
+			onClose: () => {},
+		});
+		const overview = Bun.stripANSI(component.render(100).join("\n"));
+		expect(overview).toContain("a@x.test");
+		// Per-account windows sort most-pressing first, so the spent windows
+		// win the capped slots and the untouched ones fall behind `+2 more`.
+		expect(overview).toContain("Window 5");
+		expect(overview).toContain("Window 2");
+		expect(overview).not.toContain("Window 0");
+		expect(overview).toContain("+2 more");
 		component.dispose();
 	});
 	it("renders a single-account card through the shared grid, with no account breakdown", () => {

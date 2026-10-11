@@ -242,11 +242,16 @@ export function resolveLimitStatus(limit: UsageLimit, warningAt?: number): Usage
 }
 
 /**
- * Aggregate resolved statuses into the status one row should show. A group that
- * mixes healthy and pressured members reads as `warning`, not as its worst
- * member: the pool still has headroom, which is how the dashboard and the
- * detail view have always rendered a bucket. `exhausted` is reported only when
- * nothing is healthy or merely warning; `unknown` only when nothing resolved.
+ * Aggregate resolved statuses into the status one row should show. Pool rule
+ * for cross-account buckets: a group that mixes healthy and pressured members
+ * reads as `warning`, not as its worst member: the pool still has headroom,
+ * which is how the dashboard and the detail view have always rendered a
+ * bucket. `exhausted` is reported only when nothing is healthy or merely
+ * warning; `unknown` only when nothing resolved.
+ *
+ * This MUST NOT aggregate the windows of a single account: one exhausted
+ * window blocks that account even when a sibling window is healthy. Use
+ * `aggregateAccountUsageStatus` for one account's windows.
  */
 export function aggregateUsageStatuses(statuses: readonly UsageStatus[]): UsageStatus {
 	const hasOk = statuses.includes("ok");
@@ -258,9 +263,27 @@ export function aggregateUsageStatuses(statuses: readonly UsageStatus[]): UsageS
 	return "unknown";
 }
 
-/** {@link aggregateUsageStatuses} over a group of limits whose statuses may be missing. */
+/** Pool rule over a group of limits whose statuses may be missing. */
 export function aggregateUsageStatus(limits: readonly UsageLimit[], warningAt?: number): UsageStatus {
 	return aggregateUsageStatuses(limits.map(limit => resolveLimitStatus(limit, warningAt)));
+}
+
+/**
+ * Worst-of aggregation for the windows of ONE account. A single exhausted
+ * window blocks the account even when sibling windows are healthy, so any
+ * `exhausted` member reports `exhausted`. Cross-account pool buckets keep the
+ * lenient `aggregateUsageStatuses` rule.
+ */
+export function aggregateAccountUsageStatuses(statuses: readonly UsageStatus[]): UsageStatus {
+	if (statuses.includes("exhausted")) return "exhausted";
+	if (statuses.includes("warning")) return "warning";
+	if (statuses.includes("ok")) return "ok";
+	return "unknown";
+}
+
+/** Worst-of rule over one account's limits whose statuses may be missing. */
+export function aggregateAccountUsageStatus(limits: readonly UsageLimit[], warningAt?: number): UsageStatus {
+	return aggregateAccountUsageStatuses(limits.map(limit => resolveLimitStatus(limit, warningAt)));
 }
 
 /**

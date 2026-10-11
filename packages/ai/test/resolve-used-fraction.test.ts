@@ -16,6 +16,8 @@
  */
 import { describe, expect, it } from "bun:test";
 import {
+	aggregateAccountUsageStatus,
+	aggregateAccountUsageStatuses,
 	aggregateUsageStatus,
 	aggregateUsageStatuses,
 	resolveLimitStatus,
@@ -190,5 +192,20 @@ describe("aggregateUsageStatus", () => {
 		];
 		expect(aggregateUsageStatus(limits)).toBe("warning");
 		expect(aggregateUsageStatus([statusLimit({ usedFraction: 1, unit: "percent" })])).toBe("exhausted");
+	});
+
+	it("reads one account's mixed windows as exhausted (worst-of), not as the pool warning", () => {
+		expect(aggregateAccountUsageStatuses(["ok", "exhausted"])).toBe("exhausted");
+		expect(aggregateAccountUsageStatuses(["ok", "warning"])).toBe("warning");
+		expect(aggregateAccountUsageStatuses(["ok"])).toBe("ok");
+		expect(aggregateAccountUsageStatuses(["unknown"])).toBe("unknown");
+		expect(aggregateAccountUsageStatuses([])).toBe("unknown");
+		const mixedWindows = [
+			statusLimit({ usedFraction: 1, unit: "percent" }),
+			statusLimit({ usedFraction: 0.2, unit: "percent" }),
+		];
+		expect(aggregateAccountUsageStatus(mixedWindows)).toBe("exhausted");
+		// The pool rule is unchanged: the same mix across accounts still reads warning.
+		expect(aggregateUsageStatus(mixedWindows)).toBe("warning");
 	});
 });

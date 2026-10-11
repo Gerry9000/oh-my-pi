@@ -8,7 +8,7 @@
  * always covers the full credential pool.
  */
 import {
-	aggregateUsageStatus,
+	aggregateAccountUsageStatus,
 	ANTHROPIC_OAUTH_GRANT_TTL_MS,
 	type AuthAccountPolicy,
 	type AuthStorage,
@@ -296,7 +296,7 @@ function formatAccountHeader(
 	label: string,
 	redaction?: Map<string, string>,
 ): string {
-	const status = aggregateUsageStatus(report.limits);
+	const status = aggregateAccountUsageStatus(report.limits);
 	const icon = STATUS_COLOR[status]("●");
 	// The canonical label already carries the org as `(org)` when it differs
 	// from the base identity, so no separate org fragment is appended here.

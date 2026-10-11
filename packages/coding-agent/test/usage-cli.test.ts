@@ -1219,5 +1219,30 @@ describe("status classification parity", () => {
 			),
 		);
 		expect(mixed).not.toBe(allSpent);
+		// Header icon color follows the per-account status: the spent account
+		// earns the red tone even though the pool still has headroom.
+		const icon = withColor(() => ({ error: chalk.red("●"), success: chalk.green("●") }));
+		const spentHeader = mixed.split("\n").find(line => line.includes("spent@example.test"));
+		const lightHeader = mixed.split("\n").find(line => line.includes("light@example.test"));
+		expect(spentHeader).toContain(icon.error);
+		expect(lightHeader).toContain(icon.success);
+	});
+
+	it("reads one account's exhausted window as exhausted even beside a healthy window", () => {
+		const solo = withColor(() =>
+			formatUsageBreakdown(
+				[
+					makeReport("gemini", "solo@example.test", [
+						makeLimit({ id: "5h", provider: "gemini", usedFraction: 1, windowId: "5h" }),
+						makeLimit({ id: "7d", provider: "gemini", usedFraction: 0.2, windowId: "7d" }),
+					]),
+				],
+				[],
+				Date.now(),
+			),
+		);
+		const error = withColor(() => chalk.red("●"));
+		const header = solo.split("\n").find(line => line.includes("solo@example.test"));
+		expect(header).toContain(error);
 	});
 });

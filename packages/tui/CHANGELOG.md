@@ -9,9 +9,13 @@
 
 - Usage dashboard status classification now uses the shared limit-status contract, and quantitative exhaustion overrides a lenient provider stamp.
 
+- One account's exhausted window now reads `exhausted` (worst-of) instead of inheriting the cross-account pool warning; the pooled rows keep the pool rule.
+
+- Per-account rows render at most four windows with a `+N more` overflow line, matching the card cap.
+
 ### Changed
 
-- Expanded the initial `/usage` dashboard to show each account's identity, availability status, remaining percentage, and individual quota windows instead of only provider-level aggregates. Combined rows preserve tier boundaries, weight absolute quotas by capacities, and show partial-account coverage across eligible plan accounts.
+- Expanded the initial `/usage` dashboard to show each account's identity, availability status, remaining percentage, and individual quota windows instead of only provider-level aggregates. Combined rows preserve tier boundaries, weight absolute quotas by capacities, and show partial-account coverage across eligible plan accounts. Per-account rows are intentionally text-grid-only: the native overlay path keeps the combined provider rows.
 
 ## [18.8.2] - 2026-10-07
 

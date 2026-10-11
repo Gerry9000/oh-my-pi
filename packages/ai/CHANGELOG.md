@@ -5,6 +5,8 @@
 
 - Usage surfaces now classify a limit through one shared contract instead of per-surface rules, and quantitative exhaustion overrides a lenient provider stamp.
 
+- One account's windows aggregate worst-of: any exhausted window reports `exhausted`. Cross-account pool buckets keep the lenient pool rule. Warning boundary stays at `USAGE_WARNING_FRACTION = 0.9` (maintainer sign-off pending).
+
 ## [18.8.3] - 2026-10-07
 
 ### Added

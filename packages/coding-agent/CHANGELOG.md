@@ -7,6 +7,8 @@
 
 - ACP usage reports now draw their ASCII bar from the resolved used fraction, so remaining-only providers no longer render an empty placeholder bar.
 
+- `omp usage --json` emits collapsed reports (per-credential probes of one account-wide pool merged, newest snapshot winning ties), matching the text view's accounts and capacity. Scripts that count or key entries in `reports[]` will see fewer entries than the per-credential output.
+
 ## [18.8.3] - 2026-10-07
 
 ### Fixed

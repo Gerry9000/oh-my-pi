@@ -7,6 +7,7 @@
  */
 import * as os from "node:os";
 import {
+	aggregateAccountUsageStatus,
 	aggregateUsageStatus,
 	aggregateUsageStatuses,
 	resolveUsedFraction,
@@ -148,10 +149,14 @@ function statusWithUnavailableAccounts(windows: readonly { status?: UsageStatus 
 	return aggregateUsageStatuses(windows.map(window => window.status ?? "unknown")) === "exhausted" ? "exhausted" : "warning";
 }
 
-/** Fraction below which a window counts as untouched (renders as 100% free). */
+/**
+ * Worst-of status for ONE account's windows: a single exhausted window blocks
+ * the account even when sibling windows are healthy. Cross-account pool
+ * buckets keep the lenient `aggregateUsageStatus` rule.
+ */
 function accountStatus(report: UsageReport): UsageStatus {
 	if (report.limits.length === 0) return "ok";
-	return aggregateUsageStatus(report.limits);
+	return aggregateAccountUsageStatus(report.limits);
 }
 
 function accountAvailability(report: UsageReport, label: string, nowMs: number): AccountAvailability {
@@ -166,6 +171,7 @@ function accountAvailability(report: UsageReport, label: string, nowMs: number):
 		windows,
 	};
 }
+/** Fraction below which a window counts as untouched (renders as 100% free). */
 const IDLE_FRACTION = 0.005;
 /**
  * Compact duration tag for a window (`7d`, `1d`, `5h`, `mo`), preferring the
@@ -913,9 +919,12 @@ export class UsageDashboardComponent implements Component {
 		const labelWidth = Math.max(1, width - 2 - visibleWidth(statusText) - freeText.length - 2);
 		const label = truncateToWidth(sanitizeText(account.label), labelWidth);
 		const accountWindows = account.windows ?? [];
+		// Per-account rows share the card cap: without it one multi-account card
+		// grows without bound (every account header plus every window) and pads
+		// the whole grid row to that height.
 		return [
 			`  ${label} ${statusText}${freeText ? ` ${theme.fg("dim", freeText)}` : ""}`,
-			...this.#renderWindowLines(accountWindows, width, "    ", accountWindows.length),
+			...this.#renderWindowLines(accountWindows, width, "    ", CARD_MAX_WINDOWS, 1),
 		];
 	}
 
@@ -1343,6 +1352,12 @@ export class UsageDashboardComponent implements Component {
 		return children;
 	}
 
+	/**
+	 * Native card: combined provider rows only. Per-account rows are
+	 * intentionally text-grid-only (the native contract has no per-account
+	 * row shape yet); the combined rows carry the same pool rule as the text
+	 * grid, capped at `CARD_MAX_WINDOWS` with a `+N more` overflow line.
+	 */
 	#describeCard(entry: ProviderCard, meter: boolean): NativeNode {
 		const cardStatus =
 			entry.unavailableAccounts.length > 0
